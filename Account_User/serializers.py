@@ -52,21 +52,47 @@ class UserCreateSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {'password': {'write_only': True}}
 
-    def create(self, validated_data):
-        # Extract profile data based on account type
-        profile_data_map = {
-            'technician': validated_data.pop('technician_profile', {}),
-            'maintenance': validated_data.pop('maintenance_profile', {}),
-            'developer': validated_data.pop('developer_profile', {})
+    def validate(self, data):
+        """
+        Ensure only relevant fields are provided based on account_type
+        """
+        account_type = data.get('account_type')
+
+        # Map account types to expected fields
+        allowed_fields = {
+            'technician': ['technician_profile'],
+            'maintenance': ['maintenance_profile'],
+            'developer': ['developer_profile'],
         }
 
-        # Create user
-        user = User.objects.create_user(**validated_data)
+        if account_type not in allowed_fields:
+            raise serializers.ValidationError({"account_type": "Invalid account type."})
 
-        # Determine which profile data to use
-        profile_data = profile_data_map.get(user.account_type, {})
-    
-        # Create profile with data
+        # Ensure only the expected fields are present
+        for field in allowed_fields.keys():
+            if field != account_type and data.get(f"{field}_profile"):
+                raise serializers.ValidationError({f"{field}_profile": "This field should not be provided."})
+
+        return data
+
+    def create(self, validated_data):
+        """
+        Create user and automatically generate the correct profile
+        """
+        account_type = validated_data.pop('account_type')
+        profile_data = {}
+
+        if account_type == "technician":
+            profile_data = validated_data.pop('technician_profile', {})
+        elif account_type == "maintenance":
+            profile_data = validated_data.pop('maintenance_profile', {})
+        elif account_type == "developer":
+            profile_data = validated_data.pop('developer_profile', {})
+
+        # Create the user
+        user = User.objects.create_user(account_type=account_type, **validated_data)
+
+        # Create profile using factory
         if profile_data:
             from .factory import UserProfileFactory
             UserProfileFactory.create_profile(user, profile_data)

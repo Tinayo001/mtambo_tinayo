@@ -3,11 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
 from django.shortcuts import get_object_or_404
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from rest_framework_simplejwt.tokens import RefreshToken
-
 
 from .models import TechnicianProfile, DeveloperProfile, MaintenanceProfile
 from .serializers import (
@@ -17,135 +16,75 @@ from .serializers import (
     UserPasswordChangeSerializer
 )
 from .factory import UserProfileFactory
-
+from .permissions import UserPermission
 
 User = get_user_model()
-
-class UserPermission(permissions.BasePermission):
-    """
-    Custom permission to:
-    - Allow anyone to create an account
-    - Allow owners to update/edit/destroy/read their own profile
-    - Allow admins to view all profiles
-    """
-    def has_permission(self, request, view):
-        if view.action == 'create':
-            return True  # Anyone can create an account
-
-        if not request.user or not request.user.is_authenticated:
-            return False  # Require authentication for all other actions
-
-        if view.action in ['list', 'retrieve']:
-            return request.user.is_staff or request.user.is_superuser
-
-        return True
-
-    def has_object_permission(self, request, view, obj):
-        if request.user.is_staff or request.user.is_superuser:
-            return True
-
-        return obj == request.user  # Users can only access their own profile
 
 class UserViewSet(viewsets.ModelViewSet):
     """
     Comprehensive User Profile Management ViewSet
     Supports full CRUD operations with fine-grained permissions
     """
+
     authentication_classes = [JWTAuthentication]
     permission_classes = [UserPermission]
     queryset = User.objects.all()
     serializer_class = UserDetailSerializer
 
     def get_queryset(self):
-        """
-        Customize queryset based on user type
-        Admins see all users, others see only themselves
-        """
+        """Filter users based on authentication and role"""
         user = self.request.user
-        if not user.is_authenticated:
-            return User.objects.none()
 
-        if user.is_staff or user.is_superuser:
-            return User.objects.all()
+        # Superusers can see all users, regular users only see themselves
+        if user.is_superuser:
+            return self.queryset
         
-        return User.objects.filter(pk=user.pk)
+        return self.queryset.filter(pk=user.pk)
 
     def get_serializer_class(self):
-        """
-        Dynamic serializer selection based on action
-        """
-        if self.action == 'create':
-            return UserCreateSerializer
-        elif self.action in ['update', 'partial_update']:
-            return UserUpdateSerializer
-        return UserDetailSerializer
+        """Return different serializers based on action"""
+        serializer_map = {
+            "create": UserCreateSerializer,
+            "update": UserUpdateSerializer,
+            "partial_update": UserUpdateSerializer,
+        }
+        return serializer_map.get(self.action, UserDetailSerializer)
 
     def perform_create(self, serializer):
-        """
-        Custom user creation and profile initialization
-        """
+        """Handle user creation and associated profile setup"""
         user = serializer.save()
         UserProfileFactory.create_profile(user)
 
-    def create(self, request, *args, **kwargs):
-        """
-        Custom user creation with proper response handling
-        """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            user = serializer.save()
-            UserProfileFactory.create_profile(user)
-            response_data = UserDetailSerializer(user).data
-            return Response(response_data, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(
-        detail=False, 
-        methods=['POST'],
-        permission_classes=[IsAuthenticated]
-    )
+    @action(detail=False, methods=["POST"], permission_classes=[IsAuthenticated])
     def change_password(self, request):
-        """
-        Custom action to change user password
-        Requires authentication
-        """
-        serializer = UserPasswordChangeSerializer(
-            data=request.data, 
-            context={'request': request}
-        )
+        """Allow authenticated users to change passwords"""
+        serializer = UserPasswordChangeSerializer(data=request.data, context={"request": request})
         
         if serializer.is_valid():
             serializer.save()
-            return Response({'message': 'Password changed successfully'}, status=status.HTTP_200_OK)
-        
+            return Response({"message": "Password changed successfully"}, status=status.HTTP_200_OK)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(
-        detail=True, 
-        methods=['GET'], 
-        permission_classes=[UserPermission]
-    )
+    @action(detail=True, methods=["GET"], permission_classes=[UserPermission])
     def profile(self, request, pk=None):
-        """
-        Retrieve detailed user profile based on account type
-        """
+        """Retrieve detailed user profile"""
         user = get_object_or_404(User, pk=pk)
+        profile_model = self.get_profile_model(user.account_type)
 
-        profile = None
-        if user.account_type == "technician":
-            profile = TechnicianProfile.objects.filter(user=user).first()
-        elif user.account_type == "maintenance":
-            profile = MaintenanceProfile.objects.filter(user=user).first()
-        elif user.account_type == "developer":
-            profile = DeveloperProfile.objects.filter(user=user).first()
+        profile = profile_model.objects.filter(user=user).first() if profile_model else None
+        profile_data = profile.additional_data if profile else None
 
-        if profile:
-            return Response({"user": UserDetailSerializer(user).data, "profile": profile.additional_data})
-        else:
-            return Response({"user": UserDetailSerializer(user).data, "profile": None})
+        return Response({"user": UserDetailSerializer(user).data, "profile": profile_data})
+
+    def get_profile_model(self, account_type):
+        """Return the appropriate profile model based on account type"""
+        profile_map = {
+            "technician": TechnicianProfile,
+            "maintenance": MaintenanceProfile,
+            "developer": DeveloperProfile,
+        }
+        return profile_map.get(account_type)
 
 class UserAuthViewSet(viewsets.ViewSet):
     """
@@ -154,7 +93,7 @@ class UserAuthViewSet(viewsets.ViewSet):
     """
     permission_classes = [AllowAny]
 
-    @action(detail=False, methods=['POST'], url_path='login')
+    @action(detail=False, methods=['POST'], url_path='login', permission_classes=[AllowAny])
     def user_login(self, request):
         """
         Handle user login with email and password
@@ -198,7 +137,7 @@ class UserAuthViewSet(viewsets.ViewSet):
                 'error': 'Invalid credentials'
             }, status=status.HTTP_401_UNAUTHORIZED)
 
-    @action(detail=False, methods=['POST'], url_path='refresh')
+    @action(detail=False, methods=['POST'], url_path='refresh', permission_classes=[IsAuthenticated])
     def token_refresh(self, request):
         """
         Refresh access token using a valid refresh token
@@ -221,7 +160,7 @@ class UserAuthViewSet(viewsets.ViewSet):
                 'error': 'Invalid or expired refresh token'
             }, status=status.HTTP_401_UNAUTHORIZED)
 
-    @action(detail=False, methods=['POST'], url_path='logout')
+    @action(detail=False, methods=['POST'], url_path='logout', permission_classes=[IsAuthenticated])
     def user_logout(self, request):
         """
         Logout user by blacklisting refresh token

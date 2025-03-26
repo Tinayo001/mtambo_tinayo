@@ -20,7 +20,7 @@ class CustomUserManager(BaseUserManager):
         
         # Validate phone number
         phone_validator = RegexValidator(
-            regex=r'^\+?1?\d{9,15}$', 
+            regex=r'^\+?1?\d{9,15}$',
             message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
         )
         phone_validator(phone_number)
@@ -98,7 +98,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     account_type = models.CharField(
         max_length=50,
         choices=ACCOUNT_TYPE_CHOICES,
-        default='developer',
         help_text="Type of user account"
     )
     
@@ -197,11 +196,6 @@ class BaseProfile(models.Model):
         on_delete=models.CASCADE, 
         related_name='%(class)s_profile'
     )
-    additional_data = models.JSONField(
-        null=True, 
-        blank=True, 
-        help_text="Flexible additional profile data"
-    )
     created_at = models.DateTimeField(
         default=timezone.now, 
         help_text="Profile creation timestamp"
@@ -245,10 +239,12 @@ class DeveloperProfile(BaseProfile):
     Specific profile for Building Developer users
     """
     developer_name = models.CharField(
-        max_length=255, 
-        help_text="Full name of the building developer",
-        default="Unknown Developer"  # Add a default value
+        max_length=255,
+        blank=True,  # ✅ Allow empty values
+        null=True,   # ✅ Allow NULL in the database
+        help_text="Full name of the building developer"
     )
+
     
     address = models.TextField(
         help_text="Primary business or residential address",
@@ -265,3 +261,11 @@ class DeveloperProfile(BaseProfile):
 
     def __str__(self):
         return f"Developer: {self.developer_name}"
+    
+class SpecializationType(models.TextChoices):
+    """
+    Predefined specialization types for technicians
+    """
+    ELEVATORS = 'ELEVATORS', 'Elevator Systems'
+    HVAC = 'HVAC', 'HVAC Systems'
+    GENERATORS = 'GENERATORS', 'Power Generators'
