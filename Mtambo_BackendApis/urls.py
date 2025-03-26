@@ -15,8 +15,26 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView
+)
+from Account_User.views import UserAuthViewSet
 
 urlpatterns = [
+    # Authentication Endpoints (JWT)
     path('admin/', admin.site.urls),
+    path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/token/logout/', UserAuthViewSet.as_view({'post': 'user_logout'}), name='token_logout'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+
+    # Include user-related URLs
+    path('api/', include('Account_User.urls')),  # 🔥 Add this and remove direct `UserViewSet` registration
+
+    # Additional Authentication Endpoints
+    path('auth/change-password/', 
+         include('Account_User.urls')),  # 🔥 Ensure change-password is handled inside `Account_User`
 ]
