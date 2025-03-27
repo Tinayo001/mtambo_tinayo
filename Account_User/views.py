@@ -1,14 +1,17 @@
-from rest_framework import viewsets, status, permissions
+
+
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.contrib.auth import get_user_model, authenticate
+from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
-from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
-from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import TechnicianProfile, DeveloperProfile, MaintenanceProfile
+from maintenance_company.models import MaintenanceCompanyProfile
+from developer.models import DeveloperProfile
+from technician.models import TechnicianProfile
+
 from .serializers import (
     UserCreateSerializer, 
     UserDetailSerializer, 
@@ -17,6 +20,9 @@ from .serializers import (
 )
 from .factory import UserProfileFactory
 from .permissions import UserPermission
+import logging
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -32,7 +38,11 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserDetailSerializer
 
     def get_queryset(self):
-        """Filter users based on authentication and role"""
+        """
+        Filter users based on authentication and role
+        - Superusers see all users
+        - Regular users see only themselves
+        """
         user = self.request.user
 
         # Superusers can see all users, regular users only see themselves
@@ -52,8 +62,23 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Handle user creation and associated profile setup"""
+        # Extract profile data if it exists
+        profile_data = {}
+        account_type = serializer.validated_data.get('account_type')
+    
+        if account_type == 'technician':
+            profile_data = serializer.validated_data.pop('technician_profile', {})
+        elif account_type == 'maintenance':
+            profile_data = serializer.validated_data.pop('maintenance_profile', {})
+        elif account_type == 'developer':
+            profile_data = serializer.validated_data.pop('developer_profile', {})
+    
+        # Create the user with the serializer
         user = serializer.save()
-        UserProfileFactory.create_profile(user)
+    
+        # Create profile with the extracted data
+        if profile_data:
+            UserProfileFactory.create_profile(user, profile_data)
 
     @action(detail=False, methods=["POST"], permission_classes=[IsAuthenticated])
     def change_password(self, request):
@@ -66,10 +91,18 @@ class UserViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=["GET"], permission_classes=[UserPermission])
+    @action(detail=True, methods=["GET"])
     def profile(self, request, pk=None):
         """Retrieve detailed user profile"""
         user = get_object_or_404(User, pk=pk)
+        
+        # Ensure user can only access their own profile or is a superuser
+        if user != request.user and not request.user.is_superuser:
+            return Response(
+                {"detail": "You do not have permission to view this profile"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         profile_model = self.get_profile_model(user.account_type)
 
         profile = profile_model.objects.filter(user=user).first() if profile_model else None
@@ -81,11 +114,11 @@ class UserViewSet(viewsets.ModelViewSet):
         """Return the appropriate profile model based on account type"""
         profile_map = {
             "technician": TechnicianProfile,
-            "maintenance": MaintenanceProfile,
+            "maintenance": MaintenanceCompanyProfile,
             "developer": DeveloperProfile,
         }
         return profile_map.get(account_type)
-
+    
 class UserAuthViewSet(viewsets.ViewSet):
     """
     Comprehensive Authentication ViewSet

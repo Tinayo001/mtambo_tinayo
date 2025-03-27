@@ -35,6 +35,9 @@ AUTH_USER_MODEL = 'Account_User.User'  # Replace with your app name
 INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'Account_User',
+    'technician',
+    'developer',
+    'maintenance_company',
     'rest_framework',
     'rest_framework_simplejwt',
     'django.contrib.admin',

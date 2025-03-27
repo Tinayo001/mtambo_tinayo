@@ -1,11 +1,10 @@
+# Account_User/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import (
-    User, 
-    TechnicianProfile, 
-    MaintenanceProfile, 
-    DeveloperProfile
-)
+from maintenance_company.models import MaintenanceCompanyProfile
+from technician.models import TechnicianProfile
+from developer.models import DeveloperProfile
+from Account_User.models import User
 
 class BaseProfileInline(admin.StackedInline):
     extra = 1
@@ -15,7 +14,8 @@ class TechnicianProfileInline(BaseProfileInline):
     model = TechnicianProfile
 
 class MaintenanceProfileInline(BaseProfileInline):
-    model = MaintenanceProfile
+    model = MaintenanceCompanyProfile
+    fk_name = 'user'  # Specify the OneToOneField linking to User
 
 class DeveloperProfileInline(BaseProfileInline):
     model = DeveloperProfile
@@ -49,6 +49,6 @@ class CustomUserAdmin(UserAdmin):
 
 admin.site.register(User, CustomUserAdmin)
 admin.site.register(TechnicianProfile)
-admin.site.register(MaintenanceProfile)
+admin.site.register(MaintenanceCompanyProfile)
 admin.site.register(DeveloperProfile)
 

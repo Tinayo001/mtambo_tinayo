@@ -1,10 +1,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import (
-    TechnicianProfile, 
-    MaintenanceProfile, 
-    DeveloperProfile
-)
+from maintenance_company.models import MaintenanceCompanyProfile
+from technician.models import TechnicianProfile
+from developer.models import DeveloperProfile
 
 User = get_user_model()
 
@@ -16,8 +14,8 @@ class BaseTechnicianProfileSerializer(serializers.ModelSerializer):
 
 class BaseMaintenanceProfileSerializer(serializers.ModelSerializer):
     class Meta:
-        model = MaintenanceProfile
-        fields = ['company_name', 'registration_number', 'additional_data']
+        model = MaintenanceCompanyProfile
+        fields = ['company_name', 'registration_number']
         extra_kwargs = {
             'company_name': {'required': True},
             'registration_number': {'required': True},
@@ -30,14 +28,12 @@ class BaseDeveloperProfileSerializer(serializers.ModelSerializer):
         fields = [
             'developer_name', 
             'address', 
-            'company_name',
         ]
         extra_kwargs = {
             'developer_name': {'required': True},
             'additional_data': {'required': False}
         }
 
-# ✅ User Create Serializer
 class UserCreateSerializer(serializers.ModelSerializer):
     technician_profile = BaseTechnicianProfileSerializer(required=False)
     maintenance_profile = BaseMaintenanceProfileSerializer(required=False)
@@ -77,11 +73,12 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """
-        Create user and automatically generate the correct profile
+        Create user and remove profile data from user creation
         """
-        account_type = validated_data.pop('account_type')
+        # Extract profile data
         profile_data = {}
-
+        account_type = validated_data.pop('account_type')
+        
         if account_type == "technician":
             profile_data = validated_data.pop('technician_profile', {})
         elif account_type == "maintenance":
