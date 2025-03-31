@@ -33,6 +33,7 @@ urlpatterns = [
 
     # Include user-related URLs
     path('api/', include('Account_User.urls')),  # 🔥 Add this and remove direct `UserViewSet` registration
+    path('api/', include('maintenance_company.urls')),
 
     # Additional Authentication Endpoints
     path('auth/change-password/', 
