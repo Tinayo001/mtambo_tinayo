@@ -11,6 +11,8 @@ from .models import MaintenanceCompanyProfile
 from .serializers import MaintenanceCompanyProfileSerializer, MaintenanceCompanyDetailSerializer
 from technician.models import TechnicianProfile
 from technician.serializers import TechnicianProfileSerializer, TechnicianCreateSerializer
+import uuid
+
 
 
 class MaintenanceCompanyViewSet(viewsets.ModelViewSet):
@@ -218,3 +220,52 @@ class MaintenanceCompanyViewSet(viewsets.ModelViewSet):
             )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'], url_path='by-email')
+    def get_company_by_email(self, request):
+        """
+        Retrieve a maintenance company by either the company email or the admin email.
+        """
+        email = request.query_params.get('email')
+
+        if not email:
+            return Response(
+                {"error": "Email parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Try fetching the company using admin's email
+        user = User.objects.filter(email=email, account_type='maintenance').first()
+        if user:
+            company = MaintenanceCompanyProfile.objects.filter(admin_user=user).first()
+        else:
+            # Try fetching using the company email
+            company = MaintenanceCompanyProfile.objects.filter(company_email=email).first()
+
+        if not company:
+            return Response(
+                {"error": "No maintenance company found with this email"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = MaintenanceCompanyDetailSerializer(company)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['get'], permission_classes=[IsSuperUser | IsMaintenanceCompanyAdmin])
+    def technicians(self, request, id=None): 
+        try:
+            company_uuid = uuid.UUID(id)
+            company = get_object_or_404(MaintenanceCompanyProfile, id=company_uuid)
+        except ValueError:
+            return Response({"detail": "Invalid UUID format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ Ensure the user is authorized
+        if request.user.account_type != "superuser" and request.user.maintenance_profile != company:
+            return Response({"detail": "You are not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        # ✅ Get all technicians under the company
+        technicians = TechnicianProfile.objects.filter(maintenance_company=company)
+        serializer = TechnicianProfileSerializer(technicians, many=True)
+        return Response({"technicians": serializer.data}, status=status.HTTP_200_OK)
+    
+    

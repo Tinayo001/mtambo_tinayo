@@ -83,3 +83,19 @@ class IsOwnerOrSuperuser(permissions.BasePermission):
             return obj.id == request.user.id
             
         return False
+    
+class IsSuperUserOrCompanyAdmin(permissions.BasePermission):
+    """
+    Custom permission to allow only superusers and the company admin to view the company's technicians.
+    """
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated  # Ensure user is logged in
+
+    def has_object_permission(self, request, view, obj):
+        # Superuser can access everything
+        if request.user.is_superuser:
+            return True
+
+        # Check if the request user is the admin of the company
+        return obj.admin_user == request.user
